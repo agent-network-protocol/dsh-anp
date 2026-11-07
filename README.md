@@ -20,7 +20,7 @@ npm test
 
 Install `@agent-network-protocol/dsh-anp/plugin` in the same Host as the shared
 `anpIdentity` service and `tools` registry. Configure this exact consumer in the
-identity service's `userConsumers`, and set its `httpAllowedOrigins` to the
+identity service's `allowConsumers` and `userConsumers`, and set its `httpAllowedOrigins` to the
 origins the user approved. Use an existing published local identity reference:
 
 ```yaml
