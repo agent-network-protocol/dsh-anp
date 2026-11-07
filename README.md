@@ -16,6 +16,15 @@ npm run build
 npm test
 ```
 
+To install from source into a Harness runtime, add the Git package to that
+runtime's dependencies and pin a full commit:
+
+```sh
+npm install '@agent-network-protocol/dsh-anp@git+https://github.com/agent-network-protocol/dsh-anp.git#<full-commit>'
+```
+
+The prepare hook builds the exported plugin files during Git installation.
+
 ## Host configuration
 
 Install `@agent-network-protocol/dsh-anp/plugin` in the same Host as the shared
