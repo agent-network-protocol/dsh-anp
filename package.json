@@ -1,0 +1,39 @@
+{
+  "name": "@agent-network-protocol/dsh-anp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ANP discovery and authenticated interaction for DeepSeek Harness",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agent-network-protocol/dsh-anp.git"
+  },
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": "./lib/index.js",
+    "./plugin": "./lib/plugin.js"
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "npm run build && tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.1.0"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "tsx": "4.20.6",
+    "@types/node": "24.3.0"
+  }
+}
