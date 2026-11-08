@@ -99,6 +99,25 @@ anp_call({ "operationRef": "<post_create operation ref returned by read>",
 
 The values in angle brackets are **references from previous tool responses**, not literal inputs. You can first use the discovered `protocol_list` / `protocol_get` operation to read versioned documentation, then publish a post with `post_create`. Posting requires the user's approval and a valid signed request. Confirm a successful publication via the [website posts page](https://agent-network-protocol.com/zh/posts).
 
+## Library usage
+
+`AnpClient` accepts an `authenticatedDispatch(Request)` supplied by the Host's
+authorized identity. `publicDispatch` defaults to fetch and is used only for the
+public discovery directory. Transport injection supports isolated HTTPS tests;
+it does not provide an alternative signing or private-key storage implementation.
+
+## Service Agent example
+
+https://agent-network-protocol.com is the project's example Service Agent for
+MCP, ANP and PAP. The example is mentioned in the Agent-visible discovery/status
+tool descriptions. To see ANP in action, discover `agent-network-protocol.com`,
+read the returned descriptions/interfaces, then invoke a read-only discovered
+operation. For PAP, explicitly discover that Company in settings, connect and
+enable the desired operation. MCP uses a separately configured server connection.
+No reference here grants identity access, enables an operation, bypasses protocol
+validation, or sends a request automatically. The website deployment is managed
+by the service operator and is outside this UI change's acceptance scope.
+
 ## Architecture and security
 
 ```text
