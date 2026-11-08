@@ -7,14 +7,23 @@ authorized DID, then invoke operations described by JSON OpenAPI 3.x documents.
 ## Install and build
 
 Use Node.js 22.13 or later. The plugin targets Cordis 4.1 and the Harness tools
-registry. Source is public; the package is private to prevent accidental npm
-publication.
+registry. The public npm package declares a DSH bundle, disabled until configured.
 
 ```sh
 npm ci
 npm run build
 npm test
 ```
+
+Install the published bundle into a Harness profile:
+
+```sh
+pnpm dsh plugin --profile <profile> add @agent-network-protocol/dsh-anp
+```
+
+Then configure the identity consumer and the bundle row described below before
+setting `enabled: true`. Installing alone does not create an identity, grant
+access, or send signed requests.
 
 To install from source into a Harness runtime, add the Git package to that
 runtime's dependencies and pin a full commit:
