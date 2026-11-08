@@ -64,7 +64,16 @@ is supplied by the model.
    described operation. Parameters must be declared path/query primitives; bodies
    use JSON. Other interface protocols remain visible but are not executed.
 
-Only configured HTTPS origins are accessible. References live in the current
+To allow arbitrary HTTPS domains, explicitly set `allowedOrigins: ['*']` on
+this plugin and set `httpAllowedOrigins['@agent-network-protocol/dsh-anp/plugin']`
+to `['*']` on the identity service. The consumer must remain in `userConsumers`.
+This removes the destination allowlist, not identity approval: the manager shows
+all HTTPS domains as the permission scope. Permanent approval covers that scope;
+one-time approval remains bound to the exact operation. Existing exact-origin
+grants do not expand automatically, and revocation is checked before dispatch.
+HTTP, URL credentials, fragments and redirects remain rejected.
+
+Without the explicit wildcard, only configured HTTPS origins are accessible. References live in the current
 plugin instance; after a reload, discover the domain again. Redirects, pagination
 cycles and incomplete discovery fail explicitly. POST requests are not retried.
 

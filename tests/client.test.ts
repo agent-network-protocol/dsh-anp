@@ -98,3 +98,48 @@ test("rejects unapproved domains, pagination loops and redirects", async () => {
   });
   await assert.rejects(redirect.discover("service.example"));
 });
+
+test("explicit wildcard supports HTTPS discovery and linked operations across domains", async () => {
+  const signed: string[] = [];
+  const client = new AnpClient({
+    allowedOrigins: ["*"],
+    publicDispatch: async () => Response.json({ "@type": "CollectionPage", items: [
+      { "@id": "https://agents.second.example/ad.json", name: "Other agent" },
+    ] }),
+    authenticatedDispatch: async request => {
+      signed.push(request.url);
+      if (request.url.endsWith("/ad.json")) return Response.json({
+        protocolType: "ANP", type: "AgentDescription",
+        interfaces: [{ url: "https://interfaces.third.example/openapi.json", protocol: "OpenAPI" }],
+      });
+      if (request.url.endsWith("/openapi.json")) return Response.json({ openapi: "3.1.0",
+        servers: [{ url: "https://api.fourth.example" }], paths: { "/query": { get: { operationId: "query" } } },
+      });
+      return Response.json({ result: "real dispatch fixture" });
+    },
+  });
+  const directory = await client.discover("directory.first.example");
+  const description = await client.describe(directory.agents[0]!.agentRef);
+  const api = await client.read(description.links[0]!.resourceRef);
+  assert.deepEqual((await client.call(api.operations[0]!.operationRef)).content, { result: "real dispatch fixture" });
+  assert.deepEqual(signed.map(url => new URL(url).origin), [
+    "https://agents.second.example", "https://interfaces.third.example", "https://api.fourth.example",
+  ]);
+});
+
+test("wildcard retains HTTPS, credential, fragment and redirect restrictions", async () => {
+  for (const url of ["http://insecure.example/ad.json", "https://user:password@example.test/ad.json", "https://example.test/ad.json#fragment"]) {
+    let signed = 0;
+    const client = new AnpClient({ allowedOrigins: ["*"],
+      publicDispatch: async () => Response.json({ "@type": "CollectionPage", items: [{ "@id": url, name: "Invalid" }] }),
+      authenticatedDispatch: async () => { signed++; return Response.json({}); },
+    });
+    await assert.rejects(client.discover("directory.example"));
+    assert.equal(signed, 0);
+  }
+  assert.throws(() => new AnpClient({ allowedOrigins: ["*", "http://insecure.example"], authenticatedDispatch: fetch }));
+  const redirect = new AnpClient({ allowedOrigins: ["*"], authenticatedDispatch: fetch,
+    publicDispatch: async () => new Response(null, { status: 302, headers: { location: "https://other.example" } }),
+  });
+  await assert.rejects(redirect.discover("directory.example"));
+});

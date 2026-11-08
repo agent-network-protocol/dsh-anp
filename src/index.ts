@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 type Json = Record<string, unknown>;
 export type Dispatch = (request: Request) => Promise<Response>;
 export interface AnpClientOptions {
+  /** Exact HTTPS origins, or an explicit '*' to allow any HTTPS origin. */
   allowedOrigins: string[];
   authenticatedDispatch: Dispatch;
   publicDispatch?: Dispatch;
@@ -41,6 +42,7 @@ export class AnpClient {
   constructor(private readonly options: AnpClientOptions) {
     this.origins = new Set(
       options.allowedOrigins.map((value) => {
+        if (value === "*") return value;
         const url = new URL(value);
         requireValue(
           url.protocol === "https:" && url.origin === value,
@@ -57,7 +59,7 @@ export class AnpClient {
         !url.username &&
         !url.password &&
         !url.hash &&
-        this.origins.has(url.origin),
+        (this.origins.has("*") || this.origins.has(url.origin)),
       "origin_not_approved",
     );
     return url.href;
