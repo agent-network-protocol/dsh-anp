@@ -13,8 +13,8 @@ test('tool errors retain closed identity failure codes without exposing native d
     globalThis.fetch = async () => Response.json({ '@type': 'CollectionPage', items: [{ '@id': 'https://service.example/ad.json', name: 'Agent' }] });
     try {
       apply(ctx, { enabled: true, allowedOrigins: ['https://service.example'], identityRef: { storeId: 'store', identityId: 'agent', did: 'did:web:identity.example' } });
-      assert(tools.get('anp_discover')!.description.includes('https://agent-network-protocol.com'));
-      assert(tools.get('anp_discover')!.description.includes('supports MCP, ANP and PAP'));
+      assert(tools.get('anp_discover')!.description.includes('agent-network-protocol.com'));
+      assert(tools.get('anp_discover')!.description.includes('MCP/ANP/PAP'));
       const discovered = await tools.get('anp_discover')!.execute({ domain: 'service.example' }, { agent: {} });
       const result = await tools.get('anp_describe')!.execute({ agentRef: discovered.value.agents[0].agentRef }, { agent: {} });
       assert.deepEqual(result, { ok: false, error: expected });

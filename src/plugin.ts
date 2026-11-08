@@ -83,6 +83,12 @@ export function apply(ctx: Context, config: Config): void {
     pending.clear();
   });
   const tools = ctx.get("tools") as { register(definition: object): unknown };
+  const descriptions: Record<string, string> = {
+    anp_discover: 'ANP 发现入口。输入域名，不是 ad.json URL；返回 agentRef。示例 agent-network-protocol.com 支持 MCP/ANP/PAP。先发现，再 describe/read/call。若还没有公共身份，使用 identity_status / identity_request_creation；不要查源码、私钥目录或 awiki-cli。',
+    anp_describe: '使用 anp_discover 返回的 agentRef 读取并验签智能体描述，获得 information/interface 的 resourceRef；不要把 URL 或 DID 当作 agentRef。identity_authorization_required 表示需用户在身份管理批准，立即停止等待，不换协议绕过。',
+    anp_read: '只读取发现描述中提供的 resourceRef。读取 OpenAPI interface 后才会产生可调用的 operationRef；不要猜测引用、路径或改用普通 curl 绕过 DID 签名。',
+    anp_call: '调用 anp_read(OpenAPI) 生成的 operationRef，按该操作声明提供 path/query/body。先只读验证；发帖等写入必须用户明确要求。身份审批时等待用户，未发布先去身份管理。网络结果不确定时绝不重发 POST。',
+  };
   const register = (
     toolName: string,
     properties: object,
@@ -91,7 +97,7 @@ export function apply(ctx: Context, config: Config): void {
   ) =>
     tools.register({
       name: toolName,
-      description: `ANP ${toolName.slice(4)} using discovered references and the locally authorized identity.` + (toolName === "anp_discover" ? " Example Service Agent: https://agent-network-protocol.com supports MCP, ANP and PAP. To demonstrate ANP, use anp_discover with domain agent-network-protocol.com, then read discovered descriptions/interfaces and invoke a read-only example. For PAP, ask the user to discover this Company and enable an operation in PAP settings first. MCP requires a configured server connection. Keep all identity approvals and user permissions." : ""),
+      description: descriptions[toolName],
       parameters: {
         type: "object",
         properties,
