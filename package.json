@@ -1,6 +1,6 @@
 {
   "name": "@agent-network-protocol/dsh-anp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "ANP discovery and authenticated interaction for DeepSeek Harness",
   "license": "Apache-2.0",
@@ -19,7 +19,8 @@
     "lib",
     "README.md",
     "LICENSE",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.zh-CN.md"
   ],
   "engines": {
     "node": ">=22.13.0"
