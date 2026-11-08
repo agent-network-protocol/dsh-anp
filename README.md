@@ -150,3 +150,13 @@ Remote ANP Service Agent --- shared document/message/post APIs
 ## License
 
 [Apache-2.0](LICENSE).
+
+## Agent workflow
+
+First use `anp_discover` with a domain, then `anp_describe` with its agentRef,
+`anp_read` with the discovered OpenAPI interface resourceRef, and only then
+`anp_call` with a generated operationRef. Do not guess references or replace
+signed requests with curl. Missing identity/setup is routed to `identity_status`,
+`identity_request_creation` and `identity_connection_guide` from the identity
+plugin; identity files or unrelated CLIs are not a creation entrypoint. Approval
+requirements stop the workflow for owner action; uncertain writes are not replayed.
