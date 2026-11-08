@@ -171,7 +171,7 @@ export class AnpClient {
     const links: {
       resourceRef: string;
       kind: string;
-      description: unknown;
+      description?: unknown;
       protocol?: string;
     }[] = [];
     for (const [field, kind] of [
@@ -190,8 +190,8 @@ export class AnpClient {
         links.push({
           resourceRef: this.add({ url: target, kind, protocol }),
           kind,
-          description: link.description,
-          protocol,
+          ...(link.description === undefined ? {} : { description: link.description }),
+          ...(protocol === undefined ? {} : { protocol }),
         });
       }
     }

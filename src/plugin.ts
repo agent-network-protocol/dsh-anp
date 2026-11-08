@@ -25,6 +25,20 @@ interface IdentityClient {
     authenticatedHttp: { dispatch(request: Request): Promise<Response> };
   }>;
 }
+const identityFailures: Record<string, string> = {
+  provider_incompatible: "identity_provider_incompatible",
+  consumer_forbidden: "identity_consumer_forbidden",
+  operation_not_permitted: "identity_operation_not_permitted",
+  grant_inactive: "identity_authorization_unavailable",
+  grant_conflict: "identity_authorization_unavailable",
+};
+function failureCode(error: unknown): string {
+  if (error instanceof AnpError) return error.code;
+  if (error && typeof error === "object" && "code" in error && typeof error.code === "string") {
+    return Object.hasOwn(identityFailures, error.code) ? identityFailures[error.code]! : "anp_request_failed";
+  }
+  return "anp_request_failed";
+}
 export function apply(ctx: Context, config: Config): void {
   if (!config.enabled) return;
   const identity = (
@@ -105,7 +119,7 @@ export function apply(ctx: Context, config: Config): void {
           return {
             ok: false,
             error:
-              error instanceof AnpError ? error.code : "anp_request_failed",
+              failureCode(error),
           };
         }
       },

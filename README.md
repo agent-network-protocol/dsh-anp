@@ -45,6 +45,11 @@ origins the user approved. Use an existing published local identity reference:
 ```
 
 The first signed operation requests access through the existing identity manager.
+Shared protocol identities that hold only a device authentication key use the
+identity Host's `ordinary-http/1` approval: public reads and exact HTTP request
+authentication only, never raw device assertions or OAuth assertions. A missing
+compatible identity provider is reported as `identity_provider_incompatible`,
+without leaking native errors or credential material.
 Approve it there and retry the operation. A permanent grant is reused; a one-time
 grant is consumed by that operation. A previously approved grant for this exact
 installed consumer may also be supplied as `grantId`. Revocation remains enforced

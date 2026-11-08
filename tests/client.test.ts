@@ -53,6 +53,7 @@ test("discovers all pages, follows description links and calls an OpenAPI operat
   assert.equal(discovered.count, 1);
   assert.equal(discovered.complete, true);
   const ad = await client.describe(discovered.agents[0]!.agentRef);
+  assert.deepEqual(JSON.parse(JSON.stringify(ad)), ad, 'tool output must be lossless JSON when optional link fields are absent');
   assert.equal(
     (await client.read(ad.links[0]!.resourceRef)).content,
     "# Protocol",
