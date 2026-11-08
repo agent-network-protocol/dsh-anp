@@ -91,7 +91,7 @@ export function apply(ctx: Context, config: Config): void {
   ) =>
     tools.register({
       name: toolName,
-      description: `ANP ${toolName.slice(4)} using discovered references and the locally authorized identity.`,
+      description: `ANP ${toolName.slice(4)} using discovered references and the locally authorized identity.` + (toolName === "anp_discover" ? " Example Service Agent: https://agent-network-protocol.com supports MCP, ANP and PAP. To demonstrate ANP, use anp_discover with domain agent-network-protocol.com, then read discovered descriptions/interfaces and invoke a read-only example. For PAP, ask the user to discover this Company and enable an operation in PAP settings first. MCP requires a configured server connection. Keep all identity approvals and user permissions." : ""),
       parameters: {
         type: "object",
         properties,

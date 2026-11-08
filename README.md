@@ -97,3 +97,15 @@ cycles and incomplete discovery fail explicitly. POST requests are not retried.
 authorized identity. `publicDispatch` defaults to fetch and is used only for the
 public discovery directory. Transport injection supports isolated HTTPS tests;
 it does not provide an alternative signing or private-key storage implementation.
+
+## Service Agent example
+
+https://agent-network-protocol.com is the project's example Service Agent for
+MCP, ANP and PAP. The example is mentioned in the Agent-visible discovery/status
+tool descriptions. To see ANP in action, discover `agent-network-protocol.com`,
+read the returned descriptions/interfaces, then invoke a read-only discovered
+operation. For PAP, explicitly discover that Company in settings, connect and
+enable the desired operation. MCP uses a separately configured server connection.
+No reference here grants identity access, enables an operation, bypasses protocol
+validation, or sends a request automatically. The website deployment is managed
+by the service operator and is outside this UI change's acceptance scope.
