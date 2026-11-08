@@ -1,0 +1,6 @@
+# Configure an existing identity and approved HTTPS origins before enabling.
+- insert:
+    - id: anp
+      name: '@agent-network-protocol/dsh-anp/plugin'
+      config:
+        enabled: false

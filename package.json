@@ -1,7 +1,6 @@
 {
   "name": "@agent-network-protocol/dsh-anp",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "ANP discovery and authenticated interaction for DeepSeek Harness",
   "license": "Apache-2.0",
@@ -13,12 +12,14 @@
   "types": "lib/index.d.ts",
   "exports": {
     ".": "./lib/index.js",
-    "./plugin": "./lib/plugin.js"
+    "./plugin": "./lib/plugin.js",
+    "./cordis.patch.yml": "./cordis.patch.yml"
   },
   "files": [
     "lib",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "cordis.patch.yml"
   ],
   "engines": {
     "node": ">=22.13.0"
@@ -27,7 +28,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run build && tsx --test tests/*.test.ts",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "4.1.0"
@@ -36,5 +38,19 @@
     "typescript": "6.0.3",
     "tsx": "4.20.6",
     "@types/node": "24.3.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  },
+  "keywords": [
+    "anp",
+    "deepseek-harness",
+    "dsh-plugin"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }

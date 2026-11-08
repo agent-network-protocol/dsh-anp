@@ -7,14 +7,23 @@ authorized DID, then invoke operations described by JSON OpenAPI 3.x documents.
 ## Install and build
 
 Use Node.js 22.13 or later. The plugin targets Cordis 4.1 and the Harness tools
-registry. Source is public; the package is private to prevent accidental npm
-publication.
+registry. The public npm package declares a DSH bundle, disabled until configured.
 
 ```sh
 npm ci
 npm run build
 npm test
 ```
+
+Install the published bundle into a Harness profile:
+
+```sh
+pnpm dsh plugin --profile <profile> add @agent-network-protocol/dsh-anp
+```
+
+Then configure the identity consumer and the bundle row described below before
+setting `enabled: true`. Installing alone does not create an identity, grant
+access, or send signed requests.
 
 To install from source into a Harness runtime, add the Git package to that
 runtime's dependencies and pin a full commit:
@@ -45,6 +54,11 @@ origins the user approved. Use an existing published local identity reference:
 ```
 
 The first signed operation requests access through the existing identity manager.
+Shared protocol identities that hold only a device authentication key use the
+identity Host's `ordinary-http/1` approval: public reads and exact HTTP request
+authentication only, never raw device assertions or OAuth assertions. A missing
+compatible identity provider is reported as `identity_provider_incompatible`,
+without leaking native errors or credential material.
 Approve it there and retry the operation. A permanent grant is reused; a one-time
 grant is consumed by that operation. A previously approved grant for this exact
 installed consumer may also be supplied as `grantId`. Revocation remains enforced
@@ -64,7 +78,16 @@ is supplied by the model.
    described operation. Parameters must be declared path/query primitives; bodies
    use JSON. Other interface protocols remain visible but are not executed.
 
-Only configured HTTPS origins are accessible. References live in the current
+To allow arbitrary HTTPS domains, explicitly set `allowedOrigins: ['*']` on
+this plugin and set `httpAllowedOrigins['@agent-network-protocol/dsh-anp/plugin']`
+to `['*']` on the identity service. The consumer must remain in `userConsumers`.
+This removes the destination allowlist, not identity approval: the manager shows
+all HTTPS domains as the permission scope. Permanent approval covers that scope;
+one-time approval remains bound to the exact operation. Existing exact-origin
+grants do not expand automatically, and revocation is checked before dispatch.
+HTTP, URL credentials, fragments and redirects remain rejected.
+
+Without the explicit wildcard, only configured HTTPS origins are accessible. References live in the current
 plugin instance; after a reload, discover the domain again. Redirects, pagination
 cycles and incomplete discovery fail explicitly. POST requests are not retried.
 
