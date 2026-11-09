@@ -39,9 +39,11 @@ test('domain mode discovers publicly and uses only the Host read capability acro
   ctx.provide('tools', { register(definition: any) { tools.set(definition.name, definition); return () => { tools.delete(definition.name); }; } });
   ctx.provide('anpIdentity', {
     bindUserConsumer() { return user; },
-    bindAnpDomainConsumer() { return { async dispatchRead(request: Request, evidence: {url:string;requiresApproval:boolean}) {
+    bindAnpDomainConsumer() { return { async prepareOperation(request:Request,evidence:{url:string;requiresApproval:boolean}) {
       resolutions++; if (!enabled) throw Object.assign(new Error('Disabled'),{code:'domain_access_disabled'});
       assert.equal(evidence.url,request.url);assert.equal(evidence.requiresApproval,false);
+      return {decision:'allow',version:0};
+    },async dispatchOperation() {
       signed++;return Response.json({protocolType:'ANP',type:'AgentDescription'});
     } }; },
     async publicDiscovery(request: Request) { return Response.json({'@type':'CollectionPage',items:[{'@id':new URL('/ad.json',request.url).href,name:'Agent'}]}); },

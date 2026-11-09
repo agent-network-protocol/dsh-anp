@@ -8,6 +8,8 @@ export interface AnpReadEvidence {
   source: string;
   url: string;
   requiresApproval: boolean;
+  discoveryOrigin: string;
+  policyEvidence?: {hasRequestBody:boolean;security?:unknown;declaredEffect?:unknown;annotations?:unknown};
 }
 export interface AnpClientOptions {
   /** Exact HTTPS origins, or an explicit '*' to allow any HTTPS origin. */
@@ -18,12 +20,15 @@ export interface AnpClientOptions {
   publicDispatch?: Dispatch;
 }
 interface Resource {
+  discoveryOrigin: string;
   url: string;
   kind: "agent" | "information" | "interface";
   protocol?: string;
   source: string;
 }
 interface Operation {
+  discoveryOrigin: string;
+  policyEvidence: NonNullable<AnpReadEvidence['policyEvidence']>;
   url: string;
   method: string;
   parameters: Json[];
@@ -78,7 +83,7 @@ export class AnpClient {
   }
   private add(resource: Resource): string {
     const entry = [...this.resources].find(
-      ([, value]) => value.url === resource.url && value.kind === resource.kind,
+      ([, value]) => value.url === resource.url && value.kind === resource.kind && value.discoveryOrigin === resource.discoveryOrigin,
     );
     if (entry) return entry[0];
     const ref = randomUUID();
@@ -98,10 +103,11 @@ export class AnpClient {
       credentials: "omit",
     });
     requireValue(!signed || evidence, 'missing_discovery_evidence');
+    const sensitive=!['GET','HEAD'].includes(request.method)||evidence?.requiresApproval===true;
     const response = signed
       ? await this.options.authenticatedDispatch(request, { ...evidence!, profile: 'anp-discovered/1', url: request.url })
       : await (this.options.publicDispatch ?? fetch)(request);
-    requireValue(response.ok && !response.redirected, ['GET','HEAD'].includes(request.method) ? 'http_request_failed' : 'operation_result_unknown');
+    requireValue(response.ok && !response.redirected, sensitive ? 'operation_result_unknown' : 'http_request_failed');
     const reader = response.body?.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -118,7 +124,7 @@ export class AnpClient {
           chunks.push(part.value);
         }
       } catch (error) {
-        if (!['GET','HEAD'].includes(request.method)) throw new AnpError('operation_result_unknown');
+        if (sensitive) throw new AnpError('operation_result_unknown');
         throw error;
       } finally {
         reader.releaseLock();
@@ -128,7 +134,7 @@ export class AnpClient {
     const text = Buffer.concat(chunks).toString("utf8");
     let content: unknown;
     try { content = /json/i.test(contentType) ? JSON.parse(text) : text; }
-    catch { throw new AnpError(['GET','HEAD'].includes(request.method) ? 'invalid_document' : 'operation_result_unknown'); }
+    catch { throw new AnpError(sensitive ? 'operation_result_unknown' : 'invalid_document'); }
     return { url, contentType, content };
   }
   async discover(domain: string, signal?: AbortSignal) {
@@ -139,6 +145,7 @@ export class AnpClient {
     let url: string | undefined = this.target(
       `https://${domain}/.well-known/agent-descriptions`,
     );
+    const discoveryOrigin=new URL(url).origin;
     const visited = new Set<string>();
     const agents = new Map<
       string,
@@ -161,7 +168,7 @@ export class AnpClient {
         );
         const target = this.target(item["@id"] as string, url);
         agents.set(target, {
-          agentRef: this.add({ url: target, kind: "agent", source: url }),
+          agentRef: this.add({ url: target, kind: "agent", source: url, discoveryOrigin }),
           name: item.name as string,
           url: target,
         });
@@ -177,7 +184,7 @@ export class AnpClient {
   async describe(agentRef: string, signal?: AbortSignal) {
     const resource = this.resources.get(agentRef);
     requireValue(resource?.kind === "agent", "unknown_agent");
-    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, requiresApproval:false});
+    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, discoveryOrigin:resource!.discoveryOrigin, requiresApproval:false});
     const document = object(result.content);
     requireValue(
       document.protocolType === "ANP" && document.type === "AgentDescription",
@@ -202,7 +209,7 @@ export class AnpClient {
         const protocol =
           typeof link.protocol === "string" ? link.protocol : undefined;
         links.push({
-          resourceRef: this.add({ url: target, kind, protocol, source: resource!.url }),
+          resourceRef: this.add({ url: target, kind, protocol, source: resource!.url, discoveryOrigin:resource!.discoveryOrigin }),
           kind,
           ...(link.description === undefined ? {} : { description: link.description }),
           ...(protocol === undefined ? {} : { protocol }),
@@ -214,7 +221,7 @@ export class AnpClient {
   async read(resourceRef: string, signal?: AbortSignal) {
     const resource = this.resources.get(resourceRef);
     requireValue(resource && resource.kind !== "agent", "unknown_resource");
-    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, requiresApproval:false});
+    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, discoveryOrigin:resource!.discoveryOrigin, requiresApproval:false});
     const operations: {
       operationRef: string;
       operationId: string;
@@ -284,7 +291,13 @@ export class AnpClient {
             parameters,
             hasBody: operation.requestBody !== undefined,
             source: resource!.url,
+            discoveryOrigin: resource!.discoveryOrigin,
+            policyEvidence:structuredClone({hasRequestBody:operation.requestBody!==undefined,
+              ...(operation.security===undefined?(spec.security===undefined?{}:{security:spec.security}):{security:operation.security}),
+              ...(operation['x-agent-effect']===undefined?{}:{declaredEffect:operation['x-agent-effect']}),
+              ...(operation['x-agent-annotations']===undefined?{}:{annotations:operation['x-agent-annotations']})}),
             requiresApproval: !['get','head'].includes(method) || operation.requestBody !== undefined
+              || requiresEffectReview(operation)
               || requiresExtraAuthorization(operation.security === undefined ? spec.security : operation.security),
           });
           operations.push({
@@ -358,8 +371,19 @@ export class AnpClient {
             headers: { "content-type": "application/json" },
             body: JSON.stringify(args.body),
           }),
-    }, true, {kind:'operation',source:operation!.source,requiresApproval:operation!.requiresApproval});
+    }, true, {kind:'operation',source:operation!.source,discoveryOrigin:operation!.discoveryOrigin,policyEvidence:operation!.policyEvidence,requiresApproval:operation!.requiresApproval});
   }
+}
+
+/** Conservative outcome handling for unsafe or contradictory semantics, including mutations transported by GET. */
+function requiresEffectReview(operation:Json):boolean {
+  if(operation['x-agent-effect']!==undefined&&operation['x-agent-effect']!=='read')return true;
+  const raw=operation['x-agent-annotations'];
+  if(raw===undefined)return false;
+  if(!raw||typeof raw!=='object'||Array.isArray(raw))return true;
+  const annotations=raw as Json;
+  return annotations.readOnlyHint===false||annotations.destructiveHint===true||annotations.paymentHint===true
+    || ['readOnlyHint','destructiveHint','paymentHint'].some(key=>annotations[key]!==undefined&&typeof annotations[key]!=='boolean');
 }
 
 /** OAuth scopes or malformed security requirements are not global read permission. */

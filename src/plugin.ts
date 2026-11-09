@@ -32,11 +32,22 @@ interface IdentityClient {
     authenticatedHttp: { dispatch(request: Request): Promise<Response> };
   }>;
 }
+interface AnpManagedClient {
+  prepareOperation(request:Request,evidence:AnpReadEvidence):Promise<{decision:'allow'|'ask'|'deny';version:number}>;
+  dispatchOperation(request:Request,evidence:AnpReadEvidence,admission:{policyVersion:number;grantId?:string}):Promise<Response>;
+}
 const identityFailures: Record<string, string> = {
+  protocol_permission_denied: 'protocol_permission_denied',
+  protocol_policy_changed: 'protocol_policy_changed',
+  protocol_policy_unavailable: 'protocol_policy_unavailable',
+  protocol_policy_invalid_target: 'protocol_policy_invalid_target',
+  protocol_policy_target_revoked: 'protocol_policy_target_revoked',
+  operation_result_unknown: 'operation_result_unknown',
   domain_access_disabled: 'domain_access_disabled',
   domain_access_expired: 'domain_access_expired',
   published_identity_required: 'published_identity_required',
   default_identity_required: 'default_identity_required',
+  default_identity_changed: 'default_identity_changed',
   capability_forbidden: 'identity_operation_not_permitted',
   request_previously_denied: 'identity_authorization_denied',
   provider_disposed: 'identity_authorization_unavailable',
@@ -78,11 +89,12 @@ export function apply(ctx: Context, config: Config): void {
   const service = ctx.get('anpIdentity') as {
     bindUserConsumer(ctx: Context): IdentityClient;
     publicDiscovery(request: Request): Promise<Response>;
-    bindAnpDomainConsumer(ctx: Context): {dispatchRead(request: Request, evidence: AnpReadEvidence): Promise<Response>};
+    bindAnpDomainConsumer(ctx: Context): AnpManagedClient;
     resolveDomainAccess(ctx: Context, profile: 'anp'): Promise<{ identityRef: NonNullable<Config['identityRef']> }>;
   };
   // Global reads and exact owner-approved operations use separate Host capabilities.
   let userClient: IdentityClient | undefined;
+  let managedClient: AnpManagedClient | undefined;
   const identity = () => userClient ??= service.bindUserConsumer(ctx);
   let grantId = config.grantId;
   let selectedIdentity: Config['identityRef'];
@@ -92,9 +104,14 @@ export function apply(ctx: Context, config: Config): void {
     ...(config.autoConnect ? { publicDispatch: (request: Request) => service.publicDiscovery(request) } : {}),
     authenticatedTimeoutMs: waitMs + 10000,
     authenticatedDispatch: async (request, evidence) => {
-      if (config.autoConnect && !evidence.requiresApproval && ['GET','HEAD'].includes(request.method)) {
+      let admission:{decision:'allow'|'ask'|'deny';version:number}|undefined;
+      if (config.autoConnect) {
         if (typeof service.bindAnpDomainConsumer !== 'function') throw new AnpError('identity_provider_incompatible');
-        return service.bindAnpDomainConsumer(ctx).dispatchRead(request, evidence);
+        managedClient??=service.bindAnpDomainConsumer(ctx);
+        if(typeof managedClient.prepareOperation!=='function'||typeof managedClient.dispatchOperation!=='function')throw new AnpError('identity_provider_incompatible');
+        admission=await managedClient.prepareOperation(request.clone(),evidence);
+        if(admission.decision==='deny')throw new AnpError('protocol_permission_denied');
+        if(admission.decision==='allow')return managedClient.dispatchOperation(request,evidence,{policyVersion:admission.version});
       }
       const reference = config.autoConnect
         ? (await service.resolveDomainAccess(ctx, 'anp')).identityRef : config.identityRef;
@@ -107,14 +124,14 @@ export function apply(ctx: Context, config: Config): void {
       if (!config.autoConnect && !grantId) grantId = await identity().findAccessGrant?.({ identity: reference, operation: { action: 'http', request } });
       if (config.autoConnect || !grantId) {
         const user = identity();
-        const key = JSON.stringify([request.method, request.url, [...request.headers], await request.clone().text()]);
+        const key = JSON.stringify([reference,admission?.version,request.method, request.url, [...request.headers], await request.clone().text()]);
         const old = pending.get(key);
         let access = old
           ? await identity().getAccessRequest(old)
           : await identity().requestAccess({
               requestId: `anp-${randomUUID()}`,
               identity: reference,
-              purpose: `${config.autoConnect ? 'ANP exact operation approval' : 'ANP'} ${request.method} ${new URL(request.url).origin}`,
+              purpose: `${config.autoConnect ? 'ANP exact operation approval' : 'ANP'} ${request.method} ${new URL(request.url).origin}${admission ? '; policy '+admission.version : ''}`,
               operation: { action: "http", request },
             });
         if (access.status === 'pending') {
@@ -135,6 +152,7 @@ export function apply(ctx: Context, config: Config): void {
         }
         if (config.autoConnect && access.mode !== 'once') throw new AnpError('identity_operation_not_permitted');
         pending.delete(key);
+        if(config.autoConnect)return managedClient!.dispatchOperation(request,evidence,{policyVersion:admission!.version,grantId:access.grantId});
         if (!config.autoConnect && access.mode === 'permanent') grantId = access.grantId;
         const authorized = await identity().openAuthorizedIdentity(
           access.grantId,
@@ -160,9 +178,9 @@ export function apply(ctx: Context, config: Config): void {
   const tools = ctx.get("tools") as { register(definition: object): unknown };
   const descriptions: Record<string, string> = {
     anp_discover: 'ANP 发现入口。输入域名，不是 ad.json URL；返回 agentRef。示例 agent-network-protocol.com 支持 MCP/ANP/PAP。先发现，再 describe/read/call。若还没有公共身份，使用 identity_status / identity_request_creation；不要查源码、私钥目录或 awiki-cli。',
-    anp_describe: '使用 anp_discover 返回的 agentRef 读取并验签智能体描述，获得 information/interface 的 resourceRef；不要把 URL 或 DID 当作 agentRef。域名模式的已发现只读请求使用全局许可，不重复弹窗。需要额外权限时会自动显示授权对话框；等待用户点击，不要求用户去设置页，不换协议绕过。',
+    anp_describe: '使用 anp_discover 返回的 agentRef 读取并验签智能体描述，获得 information/interface 的 resourceRef；不要把 URL 或 DID 当作 agentRef。域名模式使用统一协议管理规则；允许的已发现只读请求不重复弹窗，询问时自动显示对话框，禁止时不发送。需要额外权限时会自动显示授权对话框；等待用户点击，不要求用户去设置页，不换协议绕过。',
     anp_read: '只读取发现描述中提供的 resourceRef。读取 OpenAPI interface 后才会产生可调用的 operationRef；不要猜测引用、路径或改用普通 curl 绕过 DID 签名。',
-    anp_call: '调用 anp_read(OpenAPI) 生成的 operationRef，按该操作声明提供 path/query/body。先只读验证；发帖等写入必须用户明确要求。写入或额外权限会自动弹出仅本次操作的授权对话框并等待用户决定；不得绕过、不授予永久写权限。未发布先完成身份创建。网络结果不确定时绝不重发 POST。',
+    anp_call: '调用 anp_read(OpenAPI) 生成的 operationRef，按该操作声明提供 path/query/body。先只读验证；发帖等写入必须用户明确要求。按统一协议管理规则，allow 直接执行，ask 自动弹出仅本次操作授权框，deny 不发送；不更改持续规则，不绕过禁止，支付、未知及额外权限仍单独确认。未发布先完成身份创建。网络结果不确定时绝不重发 POST。',
   };
   const register = (
     toolName: string,
