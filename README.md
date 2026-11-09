@@ -160,3 +160,9 @@ signed requests with curl. Missing identity/setup is routed to `identity_status`
 `identity_request_creation` and `identity_connection_guide` from the identity
 plugin; identity files or unrelated CLIs are not a creation entrypoint. Approval
 requirements stop the workflow for owner action; uncertain writes are not replayed.
+
+## Domain-based automatic access
+
+Enable `autoConnect: true` with `enabled: true` to discover arbitrary HTTPS domains without an `identityRef` or per-domain `allowedOrigins`. The identity Host must opt into `domainAccess` once and authorize this consumer's HTTP origins. Discovery is public and uses the Host's public-address-pinned HTTPS transport. Discovered reads select the single published identity (or the Host's explicit default) and use its global read capability. Writes and extra permissions open a once-only owner dialog and wait for the decision; they do not reuse a permanent write grant. Multiple identities require an explicit default; the plugin never silently chooses another identity. Existing exact-origin mode is unchanged.
+
+Domain-mode consent requires `@agent-network-protocol/dsh-anp-identity >=0.1.14`. Reads still check the current default identity, installed consumer, public HTTPS target and Host permission. Extra operations bind method, URL, query, headers and body to one approval. Cancellation/unload never grants access; a write with an uncertain result is not automatically retried. `approvalWaitMs` defaults to 120000 (0–600000); `approvalPollMs` defaults to 1000 (10–10000). Legacy exact-origin mode keeps its original grants. No chat-controlled full-write setting is included.

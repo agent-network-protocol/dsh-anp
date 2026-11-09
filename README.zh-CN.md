@@ -109,3 +109,9 @@ DSH Agent → dsh-anp 工具 → 同一 Host 的 ANP Identity
 ## 许可
 
 [Apache-2.0](LICENSE)。
+
+## 域名自动接入
+
+设置一次 `enabled: true`、`autoConnect: true`，并在身份 Host 启用全局 `domainAccess` 及该消费者的 HTTP 域名权限后，无需逐域名配置 `identityRef` 或 `allowedOrigins`。公开发现无需身份；签名调用自动选择唯一已发布身份或 Host 指定的默认身份，复用已批准的永久授权，否则仍需用户审批。多个身份时不会静默选择。域名模式拒绝非公网 DNS 目标及重定向；原精确域名模式保持不变。
+
+域名模式依赖 `@agent-network-protocol/dsh-anp-identity >=0.1.14`：已发现的 GET/HEAD 读取直接使用全局只读许可；写入或额外权限自动弹出仅本次请求的确认框，批准前不发送，不授予永久写权限。默认等待确认 120 秒，可通过 `approvalWaitMs`、`approvalPollMs` 配置。取消、卸载和不确定写入不会自动重放。本版不包含聊天开启全量写模式。

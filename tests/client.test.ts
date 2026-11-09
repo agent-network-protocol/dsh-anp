@@ -144,3 +144,11 @@ test("wildcard retains HTTPS, credential, fragment and redirect restrictions", a
   });
   await assert.rejects(redirect.discover("directory.example"));
 });
+
+test('explicit malformed security never inherits a permissive default read classification',async()=>{
+  const evidence: boolean[]=[];
+  const client=new AnpClient({allowedOrigins:['*'],publicDispatch:async()=>Response.json({'@type':'CollectionPage',items:[{'@id':'https://service.example/ad.json',name:'Service'}]}),
+    authenticatedDispatch:async(request,proof)=>{evidence.push(proof.requiresApproval);if(request.url.endsWith('ad.json'))return Response.json({protocolType:'ANP',type:'AgentDescription',interfaces:[{url:'/api.json',protocol:'OpenAPI'}]});if(request.url.endsWith('api.json'))return Response.json({openapi:'3.1.0',security:[],paths:{'/unsafe':{get:{security:null}}}});return Response.json({});}});
+  const directory=await client.discover('website.example');const ad=await client.describe(directory.agents[0]!.agentRef);const api=await client.read(ad.links[0]!.resourceRef);await client.call(api.operations[0]!.operationRef);
+  assert.deepEqual(evidence,[false,false,true]);
+});

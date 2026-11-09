@@ -2,25 +2,37 @@ import { randomUUID } from "node:crypto";
 
 type Json = Record<string, unknown>;
 export type Dispatch = (request: Request) => Promise<Response>;
+export interface AnpReadEvidence {
+  profile: 'anp-discovered/1';
+  kind: 'agent' | 'information' | 'interface' | 'operation';
+  source: string;
+  url: string;
+  requiresApproval: boolean;
+}
 export interface AnpClientOptions {
   /** Exact HTTPS origins, or an explicit '*' to allow any HTTPS origin. */
   allowedOrigins: string[];
-  authenticatedDispatch: Dispatch;
+  authenticatedDispatch: (request: Request, evidence: AnpReadEvidence) => Promise<Response>;
+  /** Includes time awaiting an owner decision; the Host transport separately bounds network I/O. */
+  authenticatedTimeoutMs?: number;
   publicDispatch?: Dispatch;
 }
 interface Resource {
   url: string;
   kind: "agent" | "information" | "interface";
   protocol?: string;
+  source: string;
 }
 interface Operation {
   url: string;
   method: string;
   parameters: Json[];
   hasBody: boolean;
+  source: string;
+  requiresApproval: boolean;
 }
 export class AnpError extends Error {
-  constructor(readonly code: string) {
+  constructor(readonly code: string, readonly requestId?: string) {
     super(code);
   }
 }
@@ -77,19 +89,19 @@ export class AnpClient {
     url: string,
     init: RequestInit = {},
     signed = true,
+    evidence?: Omit<AnpReadEvidence, "profile" | "url">,
   ): Promise<{ url: string; contentType: string; content: unknown }> {
     const request = new Request(this.target(url), {
       ...init,
       redirect: "manual",
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.any([AbortSignal.timeout(signed ? this.options.authenticatedTimeoutMs ?? 10000 : 10000), ...(init.signal ? [init.signal] : [])]),
       credentials: "omit",
     });
-    const response = await (
-      signed
-        ? this.options.authenticatedDispatch
-        : (this.options.publicDispatch ?? fetch)
-    )(request);
-    requireValue(response.ok && !response.redirected, "http_request_failed");
+    requireValue(!signed || evidence, 'missing_discovery_evidence');
+    const response = signed
+      ? await this.options.authenticatedDispatch(request, { ...evidence!, profile: 'anp-discovered/1', url: request.url })
+      : await (this.options.publicDispatch ?? fetch)(request);
+    requireValue(response.ok && !response.redirected, ['GET','HEAD'].includes(request.method) ? 'http_request_failed' : 'operation_result_unknown');
     const reader = response.body?.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -105,19 +117,21 @@ export class AnpClient {
           }
           chunks.push(part.value);
         }
+      } catch (error) {
+        if (!['GET','HEAD'].includes(request.method)) throw new AnpError('operation_result_unknown');
+        throw error;
       } finally {
         reader.releaseLock();
       }
     }
     const contentType = response.headers.get("content-type") ?? "text/plain";
     const text = Buffer.concat(chunks).toString("utf8");
-    return {
-      url,
-      contentType,
-      content: /json/i.test(contentType) ? JSON.parse(text) : text,
-    };
+    let content: unknown;
+    try { content = /json/i.test(contentType) ? JSON.parse(text) : text; }
+    catch { throw new AnpError(['GET','HEAD'].includes(request.method) ? 'invalid_document' : 'operation_result_unknown'); }
+    return { url, contentType, content };
   }
-  async discover(domain: string) {
+  async discover(domain: string, signal?: AbortSignal) {
     requireValue(
       typeof domain === "string" && !!domain && !/[/?#@\\]/.test(domain),
       "invalid_domain",
@@ -136,7 +150,7 @@ export class AnpClient {
         "invalid_pagination",
       );
       visited.add(url);
-      const page = object((await this.request(url, {}, false)).content);
+      const page = object((await this.request(url, { signal }, false)).content);
       requireValue(
         page["@type"] === "CollectionPage" && Array.isArray(page.items),
       );
@@ -147,7 +161,7 @@ export class AnpClient {
         );
         const target = this.target(item["@id"] as string, url);
         agents.set(target, {
-          agentRef: this.add({ url: target, kind: "agent" }),
+          agentRef: this.add({ url: target, kind: "agent", source: url }),
           name: item.name as string,
           url: target,
         });
@@ -160,10 +174,10 @@ export class AnpClient {
     }
     return { count: agents.size, complete: true, agents: [...agents.values()] };
   }
-  async describe(agentRef: string) {
+  async describe(agentRef: string, signal?: AbortSignal) {
     const resource = this.resources.get(agentRef);
     requireValue(resource?.kind === "agent", "unknown_agent");
-    const result = await this.request(resource!.url);
+    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, requiresApproval:false});
     const document = object(result.content);
     requireValue(
       document.protocolType === "ANP" && document.type === "AgentDescription",
@@ -188,7 +202,7 @@ export class AnpClient {
         const protocol =
           typeof link.protocol === "string" ? link.protocol : undefined;
         links.push({
-          resourceRef: this.add({ url: target, kind, protocol }),
+          resourceRef: this.add({ url: target, kind, protocol, source: resource!.url }),
           kind,
           ...(link.description === undefined ? {} : { description: link.description }),
           ...(protocol === undefined ? {} : { protocol }),
@@ -197,10 +211,10 @@ export class AnpClient {
     }
     return { ...result, links };
   }
-  async read(resourceRef: string) {
+  async read(resourceRef: string, signal?: AbortSignal) {
     const resource = this.resources.get(resourceRef);
     requireValue(resource && resource.kind !== "agent", "unknown_resource");
-    const result = await this.request(resource!.url);
+    const result = await this.request(resource!.url, { signal }, true, {kind:resource!.kind, source:resource!.source, requiresApproval:false});
     const operations: {
       operationRef: string;
       operationId: string;
@@ -269,6 +283,9 @@ export class AnpClient {
             method: method.toUpperCase(),
             parameters,
             hasBody: operation.requestBody !== undefined,
+            source: resource!.url,
+            requiresApproval: !['get','head'].includes(method) || operation.requestBody !== undefined
+              || requiresExtraAuthorization(operation.security === undefined ? spec.security : operation.security),
           });
           operations.push({
             operationRef,
@@ -284,6 +301,7 @@ export class AnpClient {
   async call(
     operationRef: string,
     args: { path?: Json; query?: Json; body?: unknown } = {},
+    signal?: AbortSignal,
   ) {
     const operation = this.operations.get(operationRef);
     requireValue(operation, "unknown_operation");
@@ -332,6 +350,7 @@ export class AnpClient {
       "unexpected_body",
     );
     return this.request(url.href, {
+      signal,
       method: operation!.method,
       ...(args.body === undefined
         ? {}
@@ -339,6 +358,14 @@ export class AnpClient {
             headers: { "content-type": "application/json" },
             body: JSON.stringify(args.body),
           }),
-    });
+    }, true, {kind:'operation',source:operation!.source,requiresApproval:operation!.requiresApproval});
   }
+}
+
+/** OAuth scopes or malformed security requirements are not global read permission. */
+function requiresExtraAuthorization(security: unknown): boolean {
+  if (security === undefined) return false;
+  if (!Array.isArray(security)) return true;
+  return security.some(requirement => !requirement || typeof requirement !== 'object' || Array.isArray(requirement)
+    || Object.values(requirement).some(scopes => !Array.isArray(scopes) || scopes.length > 0));
 }
