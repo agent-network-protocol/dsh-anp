@@ -22,3 +22,46 @@ test('tool errors retain closed identity failure codes without exposing native d
     } finally { globalThis.fetch = original; await ctx.fiber.dispose(); }
   }
 });
+
+test('domain mode discovers publicly and uses only the Host read capability across domains', async () => {
+  const ctx = new Context();
+  const tools = new Map<string, { execute(args: object, execution: object): Promise<any> }>();
+  let enabled = false, resolutions = 0, accessRequests = 0, signed = 0;
+  const reference = { storeId: 'store', identityId: 'identity', did: 'did:wba:identity.example' };
+  const user = {
+    async findAccessGrant() { return 'existing-permanent-grant'; },
+    async requestAccess() { accessRequests++; throw new Error('Unexpected approval request'); },
+    async openAuthorizedIdentity(grant: string) {
+      assert.equal(grant, 'existing-permanent-grant');
+      return { authenticatedHttp: { async dispatch() { signed++; return Response.json({ protocolType:'ANP', type:'AgentDescription' }); } } };
+    },
+  };
+  ctx.provide('tools', { register(definition: any) { tools.set(definition.name, definition); return () => { tools.delete(definition.name); }; } });
+  ctx.provide('anpIdentity', {
+    bindUserConsumer() { return user; },
+    bindAnpDomainConsumer() { return { async prepareOperation(request:Request,evidence:{url:string;requiresApproval:boolean}) {
+      resolutions++; if (!enabled) throw Object.assign(new Error('Disabled'),{code:'domain_access_disabled'});
+      assert.equal(evidence.url,request.url);assert.equal(evidence.requiresApproval,false);
+      return {decision:'allow',version:0};
+    },async dispatchOperation() {
+      signed++;return Response.json({protocolType:'ANP',type:'AgentDescription'});
+    } }; },
+    async publicDiscovery(request: Request) { return Response.json({'@type':'CollectionPage',items:[{'@id':new URL('/ad.json',request.url).href,name:'Agent'}]}); },
+    async resolveDomainAccess() { resolutions++; if (!enabled) throw Object.assign(new Error('Disabled'), {code:'domain_access_disabled'}); return {identityRef:reference}; },
+  });
+  apply(ctx, { enabled:true, autoConnect:true });
+  const execute = (name: string, args: object) => tools.get(name)!.execute(args,{agent:{}});
+  try {
+    const first = await execute('anp_discover', {domain:'one.example'});
+    assert.equal(first.ok,true); assert.equal(resolutions,0);
+    assert.deepEqual(await execute('anp_describe', {agentRef:first.value.agents[0].agentRef}),{ok:false,error:'domain_access_disabled'});
+    enabled = true;
+    assert.equal((await execute('anp_describe', {agentRef:first.value.agents[0].agentRef})).ok,true);
+    const other = await execute('anp_discover', {domain:'two.example'});
+    assert.equal((await execute('anp_describe', {agentRef:other.value.agents[0].agentRef})).ok,true);
+    assert.equal(signed,2); assert.equal(accessRequests,0);
+    const cached = tools.get('anp_discover')!;
+    await ctx.fiber.dispose(); assert.equal(tools.size,0);
+    assert.deepEqual(await cached.execute({domain:'one.example'},{agent:{}}),{ok:false,error:'unavailable'});
+  } finally { await ctx.fiber.dispose(); }
+});
