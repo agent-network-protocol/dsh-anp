@@ -161,6 +161,12 @@ signed requests with curl. Missing identity/setup is routed to `identity_status`
 plugin; identity files or unrelated CLIs are not a creation entrypoint. Approval
 requirements stop the workflow for owner action; uncertain writes are not replayed.
 
+Operation errors retain a closed `response` diagnostic when HTTP headers were received: `status`, `outcome: response_received`, `bodyComplete` and `mutationOutcome`. Error bodies and authentication headers are not exposed. A 404 for a missing resource is not evidence of a broken query or signature. A write remains `operation_result_unknown` after an error response or incomplete success body; it may already have taken effect. An idempotency key alone does not authorize replay, changing the body, or switching protocols/principals. Reconcile under the original identity first.
+
+For an error HTTP status, the response body is deliberately cancelled; `bodyComplete: false` does not establish a transport truncation. A status missing from older logs means that diagnostic was not retained, not that no response arrived.
+
+The adapter's `requestTimeoutMs` defaults to 60000 and accepts 1000–120000 milliseconds, separately from `approvalWaitMs`. The Identity Host's `domainAccess.requestTimeoutMs` controls the signed ANP network deadline with the same default and range; configure both when changing it. Public metadata discovery retains its shorter deadline. No timeout enables automatic replay.
+
 ## Domain-based automatic access and owner policy
 
 Enable `enabled: true, autoConnect: true` after the Identity Host's one-time domain opt-in. The candidate uses the shared Protocol Management policy, not a per-site configuration. The original domain is retained through directory, description, interface and operation references, including cross-origin links. Different discovery origins do not share opaque references even if they lead to the same endpoint.

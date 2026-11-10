@@ -65,3 +65,30 @@ test('domain mode discovers publicly and uses only the Host read capability acro
     assert.deepEqual(await cached.execute({domain:'one.example'},{agent:{}}),{ok:false,error:'unavailable'});
   } finally { await ctx.fiber.dispose(); }
 });
+
+test('model-visible operation failures retain HTTP status and omit private remote bodies', async () => {
+  const ctx = new Context(), tools = new Map<string, { execute(args: object, execution: object): Promise<any> }>();
+  ctx.provide('tools', { register(tool: any) { tools.set(tool.name, tool); } });
+  ctx.provide('anpIdentity', {
+    publicDiscovery: async () => Response.json({ '@type': 'CollectionPage', items: [{ '@id': 'https://service.example/ad.json', name: 'Service' }] }),
+    bindAnpDomainConsumer() { return {
+      prepareOperation: async () => ({ decision: 'allow', version: 0 }),
+      dispatchOperation: async (request: Request) => request.url.endsWith('/ad.json')
+        ? Response.json({ protocolType: 'ANP', type: 'AgentDescription', interfaces: [{ url: '/openapi.json', protocol: 'OpenAPI' }] })
+        : request.url.endsWith('/openapi.json') ? Response.json({ openapi: '3.1.0', paths: { '/query': { get: { operationId: 'query' } } } })
+        : Response.json({ token: 'private-remote-body' }, { status: 404 }),
+    }; },
+  });
+  apply(ctx, { enabled: true, autoConnect: true });
+  const call = (name: string, args: object) => tools.get(name)!.execute(args, { agent: {} });
+  try {
+    const directory = await call('anp_discover', { domain: 'service.example' });
+    const ad = await call('anp_describe', { agentRef: directory.value.agents[0].agentRef });
+    const api = await call('anp_read', { resourceRef: ad.value.links[0].resourceRef });
+    const result = await call('anp_call', { operationRef: api.value.operations[0].operationRef });
+    assert.equal(result.error, 'http_request_failed');
+    assert.equal(result.response.status, 404);
+    assert.equal(result.response.outcome, 'response_received');
+    assert(!JSON.stringify(result).includes('private-remote-body'));
+  } finally { await ctx.fiber.dispose(); }
+});
