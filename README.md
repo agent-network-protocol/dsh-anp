@@ -1,5 +1,7 @@
 # DSH ANP
 
+Version `0.1.5` preserves received HTTP status without exposing remote error bodies and makes the authenticated request allowance configurable. Use Identity `0.1.17` or newer for the matching `domainAccess.requestTimeoutMs` Host budget; write failures remain unknown and are never automatically replayed.
+
 **ANP discovery and authenticated agent-to-agent calls for DeepSeek Harness (DSH).**
 
 English | [简体中文](README.zh-CN.md)

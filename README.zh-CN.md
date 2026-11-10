@@ -1,5 +1,7 @@
 # DSH ANP
 
+`0.1.5` 保留真实 HTTP 状态且不暴露远端错误正文，并允许配置认证调用预算。配套的 Host `domainAccess.requestTimeoutMs` 网络预算需要 Identity `0.1.17` 或更高版本；写入失败仍保守报告结果未知，不自动重放。
+
 **DeepSeek Harness（DSH）的 ANP 智能体发现与身份认证调用插件。**
 
 [English](README.md) | 简体中文
