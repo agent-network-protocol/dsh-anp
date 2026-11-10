@@ -13,6 +13,8 @@ export interface Config {
   grantId?: string;
   approvalWaitMs?: number;
   approvalPollMs?: number;
+  /** Network/response allowance in addition to the bounded owner wait. */
+  requestTimeoutMs?: number;
 }
 interface Access {
   id: string;
@@ -43,6 +45,7 @@ const identityFailures: Record<string, string> = {
   protocol_policy_invalid_target: 'protocol_policy_invalid_target',
   protocol_policy_target_revoked: 'protocol_policy_target_revoked',
   operation_result_unknown: 'operation_result_unknown',
+  http_request_timeout: 'http_request_timeout',
   domain_access_disabled: 'domain_access_disabled',
   domain_access_expired: 'domain_access_expired',
   published_identity_required: 'published_identity_required',
@@ -84,7 +87,9 @@ export function apply(ctx: Context, config: Config): void {
   if (!config.enabled) return;
   const waitMs = config.approvalWaitMs ?? (config.autoConnect ? 120000 : 0);
   const pollMs = config.approvalPollMs ?? 1000;
-  if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 600000 || !Number.isSafeInteger(pollMs) || pollMs < 10 || pollMs > 10000) throw new AnpError('invalid_configuration');
+  const requestTimeoutMs = config.requestTimeoutMs ?? 60000;
+  if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 600000 || !Number.isSafeInteger(pollMs) || pollMs < 10 || pollMs > 10000
+    || !Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs < 1000 || requestTimeoutMs > 120000) throw new AnpError('invalid_configuration');
   const controller = new AbortController();
   const service = ctx.get('anpIdentity') as {
     bindUserConsumer(ctx: Context): IdentityClient;
@@ -102,7 +107,7 @@ export function apply(ctx: Context, config: Config): void {
   const client = new AnpClient({
     allowedOrigins: config.allowedOrigins ?? (config.autoConnect ? ['*'] : []),
     ...(config.autoConnect ? { publicDispatch: (request: Request) => service.publicDiscovery(request) } : {}),
-    authenticatedTimeoutMs: waitMs + 10000,
+    authenticatedTimeoutMs: waitMs + requestTimeoutMs + 30000,
     authenticatedDispatch: async (request, evidence) => {
       let admission:{decision:'allow'|'ask'|'deny';version:number}|undefined;
       if (config.autoConnect) {
@@ -180,7 +185,7 @@ export function apply(ctx: Context, config: Config): void {
     anp_discover: 'ANP 发现入口。输入域名，不是 ad.json URL；返回 agentRef。示例 agent-network-protocol.com 支持 MCP/ANP/PAP。先发现，再 describe/read/call。若还没有公共身份，使用 identity_status / identity_request_creation；不要查源码、私钥目录或 awiki-cli。',
     anp_describe: '使用 anp_discover 返回的 agentRef 读取并验签智能体描述，获得 information/interface 的 resourceRef；不要把 URL 或 DID 当作 agentRef。域名模式使用统一协议管理规则；允许的已发现只读请求不重复弹窗，询问时自动显示对话框，禁止时不发送。需要额外权限时会自动显示授权对话框；等待用户点击，不要求用户去设置页，不换协议绕过。',
     anp_read: '只读取发现描述中提供的 resourceRef。读取 OpenAPI interface 后才会产生可调用的 operationRef；不要猜测引用、路径或改用普通 curl 绕过 DID 签名。',
-    anp_call: '调用 anp_read(OpenAPI) 生成的 operationRef，按该操作声明提供 path/query/body。先只读验证；发帖等写入必须用户明确要求。按统一协议管理规则，allow 直接执行，ask 自动弹出仅本次操作授权框，deny 不发送；不更改持续规则，不绕过禁止，支付、未知及额外权限仍单独确认。未发布先完成身份创建。网络结果不确定时绝不重发 POST。',
+    anp_call: '调用 anp_read(OpenAPI) 生成的 operationRef，按该操作声明提供 path/query/body。先只读验证；发帖等写入必须用户明确要求。按统一协议管理规则，allow 直接执行，ask 自动弹出仅本次操作授权框，deny 不发送；不更改持续规则，不绕过禁止，支付、未知及额外权限仍单独确认。operation_result_unknown 不证明失败或未落库；先查同一身份的结果，不重发或换协议试写。相同 idempotency_key 也不保证跨身份、跨协议或修改正文后的重试安全。response.status 表示真实 HTTP 响应，404 不证明查询参数或签名失败。',
   };
   const register = (
     toolName: string,
@@ -191,7 +196,7 @@ export function apply(ctx: Context, config: Config): void {
     const dispose = tools.register({
       name: toolName,
       description: descriptions[toolName],
-      timeoutMs: waitMs + 30000,
+      timeoutMs: waitMs + requestTimeoutMs + 30000,
       parameters: {
         type: "object",
         properties,
@@ -221,6 +226,7 @@ export function apply(ctx: Context, config: Config): void {
             ok: false,
             error:
               failureCode(error),
+            ...(error instanceof AnpError && error.response ? { response: error.response } : {}),
             ...(error instanceof AnpError && error.requestId ? {authorization:{requestId:error.requestId,presentation:'dialog',status:'pending'}} : {}),
           };
         }

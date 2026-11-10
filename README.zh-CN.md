@@ -1,5 +1,7 @@
 # DSH ANP
 
+`0.1.5` 保留真实 HTTP 状态且不暴露远端错误正文，并允许配置认证调用预算。配套的 Host `domainAccess.requestTimeoutMs` 网络预算需要 Identity `0.1.17` 或更高版本；写入失败仍保守报告结果未知，不自动重放。
+
 **DeepSeek Harness（DSH）的 ANP 智能体发现与身份认证调用插件。**
 
 [English](README.md) | 简体中文
@@ -117,3 +119,9 @@ Host 一次性启用域名接入，并设置 `enabled: true, autoConnect: true` 
 身份 Host 在原生认证发送边界独立复查规则：允许不重复弹窗，询问消耗一次精确操作授权，禁止不发送业务请求。支持明确声明的 POST 只读语义；冲突、未知、支付和额外权限仍保守确认。当前身份、插件、发现绑定、策略版本和已有拒绝记录均会复查，不能退回通用 HTTP 租约绕过。不确定写入绝不自动重放。
 
 需要 Identity 0.1.15 或更高版本的 Host API，缺少 API 时失败关闭；适配器 0.1.4 要求 Identity >=0.1.15。原静态精确域名模式保留已有授权。等待确认默认 120 秒，由 `approvalWaitMs`、`approvalPollMs` 配置。持续规则可通过 Identity 的 protocol_permissions 工具在所有者确认后修改，不开放通用签名；两站三协议真实读写已验证，版本组合为适配器 0.1.4 与 Identity 0.1.15。
+
+收到 HTTP 响应头后的错误附带 `response.status`、`outcome: response_received`、`bodyComplete` 和 `mutationOutcome`；不返回错误正文或认证头。不存在资源的 404 不等于查询参数或签名故障。写操作遇到错误响应或不完整的成功正文仍保留结果未知，不能据此断言未落库。相同幂等键也不保证修改正文、切换身份或跨协议重试安全，应先在原身份下核对结果。
+
+遇到错误 HTTP 状态时，客户端会主动取消正文；此时 `bodyComplete: false` 不等于传输截断。旧日志没有状态码只说明诊断信息没有保留，不能据此认定当时没有收到响应。
+
+适配器的 `requestTimeoutMs` 与 Identity Host 的 `domainAccess.requestTimeoutMs` 分别控制认证调用预算和签名请求的网络预算，默认均为 60000 毫秒，可设 1000–120000 毫秒；调整时保持二者一致。等待用户确认的 `approvalWaitMs` 单独计算；公共发现保留较短超时。超时不会触发自动重放。

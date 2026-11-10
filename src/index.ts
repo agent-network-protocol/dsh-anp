@@ -37,7 +37,12 @@ interface Operation {
   requiresApproval: boolean;
 }
 export class AnpError extends Error {
-  constructor(readonly code: string, readonly requestId?: string) {
+  constructor(readonly code: string, readonly requestId?: string, readonly response?: {
+    status: number;
+    outcome: 'response_received';
+    bodyComplete: boolean;
+    mutationOutcome: 'unknown' | 'not_applicable';
+  }) {
     super(code);
   }
 }
@@ -107,7 +112,12 @@ export class AnpClient {
     const response = signed
       ? await this.options.authenticatedDispatch(request, { ...evidence!, profile: 'anp-discovered/1', url: request.url })
       : await (this.options.publicDispatch ?? fetch)(request);
-    requireValue(response.ok && !response.redirected, sensitive ? 'operation_result_unknown' : 'http_request_failed');
+    const responseDetails = (bodyComplete: boolean) => ({ status: response.status, outcome: 'response_received' as const,
+      bodyComplete, mutationOutcome: sensitive ? 'unknown' as const : 'not_applicable' as const });
+    if (!response.ok || response.redirected) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new AnpError(sensitive ? 'operation_result_unknown' : 'http_request_failed', undefined, responseDetails(false));
+    }
     const reader = response.body?.getReader();
     const chunks: Uint8Array[] = [];
     let size = 0;
@@ -124,7 +134,7 @@ export class AnpClient {
           chunks.push(part.value);
         }
       } catch (error) {
-        if (sensitive) throw new AnpError('operation_result_unknown');
+        if (sensitive) throw new AnpError('operation_result_unknown', undefined, responseDetails(false));
         throw error;
       } finally {
         reader.releaseLock();
@@ -134,7 +144,7 @@ export class AnpClient {
     const text = Buffer.concat(chunks).toString("utf8");
     let content: unknown;
     try { content = /json/i.test(contentType) ? JSON.parse(text) : text; }
-    catch { throw new AnpError(sensitive ? 'operation_result_unknown' : 'invalid_document'); }
+    catch { throw new AnpError(sensitive ? 'operation_result_unknown' : 'invalid_document', undefined, responseDetails(true)); }
     return { url, contentType, content };
   }
   async discover(domain: string, signal?: AbortSignal) {
